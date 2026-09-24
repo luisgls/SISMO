@@ -8,17 +8,20 @@ use Statistics::R;
 use Getopt::Std;
 
 my %opt=();
-getopts("i:f:n:",\%opt);
+getopts("i:f:n:s:",\%opt);
 
 my $usage="$0
 -i FASTA transcript files
 -f mutational profile
 -n number of simulated mutations
+-s random seed, optional: the same seed reproduces the same simulation
 ";
 
 my $fasta = $opt{i} or die $usage;
 my $profile= $opt{f} or die $usage;
 my $nsim = $opt{n} or die $usage;
+# Optional, and 0 is a legitimate seed, so test for definedness rather than truth.
+my $seed = defined $opt{s} ? $opt{s} : undef;
 
 my %freq=getFreq($profile);
 
@@ -110,8 +113,8 @@ my @trip_probs;
 
 ###print STDERR "Step 3, get triplet frquencies per transcripts\n";
 
-foreach my $el( keys %freq){
-	foreach my $el2(keys %{ $freq{$el} }){
+foreach my $el( sort keys %freq){
+	foreach my $el2(sort keys %{ $freq{$el} }){
 		push @triplets, $el."_".$el2;
 		push @trip_probs, $freq{$el}{$el2}{freq};		
 		}
@@ -120,6 +123,16 @@ foreach my $el( keys %freq){
 #print Dumper(@trip_probs);
 
 my $R = Statistics::R->new();
+
+# Both generators have to be seeded: R draws the triplet contexts and the
+# transcripts, Perl's rand picks the position within a transcript. Seeded
+# before the first draw, or the stream is already spent.
+if (defined $seed) {
+	$R->set('seed', $seed);
+	$R->run( q'set.seed(seed)' );
+	srand($seed);
+}
+
 $R->set( 'x', \@triplets );
 $R->set('p', \@trip_probs);
 $R->set('n', $nsim);
@@ -146,7 +159,7 @@ foreach my $runs(@changes){
 }
 
 my %drawn;
-foreach my $trip(keys %needed){
+foreach my $trip(sort keys %needed){
 	my @names  = @{$prob{$trip}{name}};
 	my @probs2 = @{$prob{$trip}{prob}};
 
