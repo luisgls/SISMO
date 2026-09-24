@@ -126,37 +126,52 @@ $R->set('n', $nsim);
 $R->run( q'sample_for_perl = sample(x, n, replace = T, prob= p)' );
 my $Rsample = $R->get('sample_for_perl');
 
-$R->stop();
-
 my @changes=split(" ","@$Rsample");
 
 #open(VEP, ">results.vep");
 
 ##main simulation part once a triplet is obtained
+##
+## The transcript for each mutation is drawn with the same sample() as before,
+## but grouped: one call per triplet context asking for every transcript that
+## context needs, rather than one call per mutation. The draws are independent,
+## so drawing them together is the same experiment. This used to open a fresh R
+## process per mutation, which cost about a second each and dominated the run.
 
-##print STDERR "Step 4, Get one transcript based on R and get a random position\n";
+###print STDERR "Step 4, Get one transcript based on R and get a random position\n";
+my %needed;
 foreach my $runs(@changes){
-	my ($trip,$sub)=split("_",$runs);
-	
-	my @names = split(" ","@{$prob{$trip}{name}}");
-	my @probs2 = split(" ","@{$prob{$trip}{prob}}" );
-	
-	my $R = Statistics::R->new();
-	
-	#print "@{$prob{$trip}{name}}"."\n";
-	
+	my ($trip) = split("_",$runs);
+	$needed{$trip}++;
+}
+
+my %drawn;
+foreach my $trip(keys %needed){
+	my @names  = @{$prob{$trip}{name}};
+	my @probs2 = @{$prob{$trip}{prob}};
+
 	$R->set( 'x1', \@names );
 	$R->set('p1', \@probs2 );
-	$R->run( q'sample_for_perl2 = sample(x1, 1, replace = T, prob= p1)' );
+	$R->set('k', $needed{$trip});
+	$R->run( q'sample_for_perl2 = sample(x1, k, replace = T, prob= p1)' );
 	my $Rsample2 = $R->get('sample_for_perl2');
 
-	$R->stop();
+	# get() gives an array reference for k > 1 and a plain string for k == 1
+	$drawn{$trip} = ref($Rsample2) eq 'ARRAY' ? [ @$Rsample2 ] : [ split(" ", $Rsample2) ];
+}
+
+$R->stop();
+
+foreach my $runs(@changes){
+	my ($trip,$sub)=split("_",$runs);
+
+	my $Rsample2 = shift @{$drawn{$trip}};
+
 	my $position = getPosInGene($Rsample2,$trip);
 	#print join ("\t", $Rsample2, ($position+1), $trip , $sub)."\n";
 	my (@ch)=split("/",$sub);
 	print $Rsample2.":c.".($position+1).$ch[0].">".$ch[1]."\n";
-	#print Dumper($position);
-	
+
 }
 
 #close VEP;
